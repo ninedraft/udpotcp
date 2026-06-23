@@ -217,6 +217,7 @@ func runServerClient(ctx context.Context, tcpConn net.Conn, udpRemote string, lo
 	defer udpConn.Close()
 
 	logf("udp connected %s -> %s", udpConn.LocalAddr(), udpConn.RemoteAddr())
+	defer logf("udp disconnected %s -> %s", udpConn.LocalAddr(), udpConn.RemoteAddr())
 
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -230,12 +231,10 @@ func runServerClient(ctx context.Context, tcpConn net.Conn, udpRemote string, lo
 				errc <- err
 				return
 			}
-			logf("tcp <- %s %dB", tcpConn.RemoteAddr(), len(payload))
 			if _, err := udpConn.Write(payload); err != nil {
 				errc <- err
 				return
 			}
-			logf("udp -> %s %dB", udpConn.RemoteAddr(), len(payload))
 		}
 	}()
 
@@ -257,12 +256,10 @@ func runServerClient(ctx context.Context, tcpConn net.Conn, udpRemote string, lo
 				return
 			}
 
-			logf("udp <- %s %dB", udpConn.RemoteAddr(), n)
 			if err := WriteFrame(tcpConn, buf[:n]); err != nil {
 				errc <- err
 				return
 			}
-			logf("tcp -> %s %dB", tcpConn.RemoteAddr(), n)
 		}
 	}()
 
