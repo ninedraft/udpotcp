@@ -8,7 +8,7 @@ import (
 	"log"
 	"net"
 	"os"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/net/netutil"
@@ -146,8 +146,8 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 	sessionCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	var peerMu sync.RWMutex
-	var peer net.Addr
+	var peer atomic.Pointer[net.UDPAddr]
+
 	errc := make(chan error, 2)
 
 	logf("tcp -> %s", tcpConn.RemoteAddr())
@@ -171,9 +171,7 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 				return
 			}
 
-			peerMu.Lock()
-			peer = addr
-			peerMu.Unlock()
+			peer.Store(addr.(*net.UDPAddr))
 
 			if err := WriteFrame(tcpConn, buf[:n]); err != nil {
 				errc <- err
@@ -191,11 +189,10 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 				return
 			}
 
-			peerMu.RLock()
-			addr := peer
-			peerMu.RUnlock()
+			addr := peer.Load()
 			if addr == nil {
 				logf("udp drop %dB: no local peer yet", len(payload))
+				sleepContext(ctx, time.Second)
 				continue
 			}
 
