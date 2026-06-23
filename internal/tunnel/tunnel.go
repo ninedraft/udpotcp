@@ -10,6 +10,8 @@ import (
 	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/net/netutil"
 )
 
 type ClientConfig struct {
@@ -90,6 +92,8 @@ func RunClient(ctx context.Context, cfg ClientConfig) error {
 	}
 }
 
+const serverDefaultMaxConnections = 16
+
 func RunServer(ctx context.Context, cfg ServerConfig) error {
 	if cfg.UDPRemote == "" {
 		return errors.New("udp remote address is required")
@@ -107,6 +111,8 @@ func RunServer(ctx context.Context, cfg ServerConfig) error {
 		if err != nil {
 			return fmt.Errorf("listening tcp %s: %w", cfg.TCPListen, err)
 		}
+
+		listener = netutil.LimitListener(listener, serverDefaultMaxConnections)
 	}
 	if ownsListener {
 		defer listener.Close()
