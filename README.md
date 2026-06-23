@@ -35,6 +35,14 @@ udpotcp client -listen 127.0.0.1:34197 -server example.com:34197
 
 For Factorio, point the game client at `127.0.0.1:34197` when using the default client listen address.
 
+Check whether a server TCP listener is reachable:
+
+```sh
+udpotcp healthcheck -server example.com:34197
+```
+
+When `-server` is omitted, healthcheck dials `127.0.0.1:34197`. Use `-timeout` to override the default `5s` dial timeout.
+
 ## JSON Configs
 
 `server.json`:

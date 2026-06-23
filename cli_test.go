@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
+	"net"
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseClientCommandUsesReadableDefaults(t *testing.T) {
@@ -28,6 +31,105 @@ func TestParseServerCommandRequiresUDPRemote(t *testing.T) {
 	_, err := parseCommand([]string{"server"})
 	if err == nil {
 		t.Fatal("parseCommand(server without -udp) succeeded")
+	}
+}
+
+func TestParseHealthcheckCommandUsesReadableDefaults(t *testing.T) {
+	cmd, err := parseCommand([]string{"healthcheck"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	healthcheck, ok := cmd.(healthcheckCommand)
+	if !ok {
+		t.Fatalf("command type = %T, want healthcheckCommand", cmd)
+	}
+	if healthcheck.serverAddr != "127.0.0.1:34197" {
+		t.Fatalf("server addr = %q, want default localhost server port", healthcheck.serverAddr)
+	}
+	if healthcheck.timeout != 5*time.Second {
+		t.Fatalf("timeout = %s, want 5s", healthcheck.timeout)
+	}
+}
+
+func TestParseHealthcheckCommandFlags(t *testing.T) {
+	cmd, err := parseCommand([]string{"healthcheck", "-server", "example.com:34197", "-timeout", "250ms"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	healthcheck := cmd.(healthcheckCommand)
+	if healthcheck.serverAddr != "example.com:34197" {
+		t.Fatalf("server addr = %q", healthcheck.serverAddr)
+	}
+	if healthcheck.timeout != 250*time.Millisecond {
+		t.Fatalf("timeout = %s, want 250ms", healthcheck.timeout)
+	}
+}
+
+func TestParseHealthcheckCommandRejectsUnexpectedArgs(t *testing.T) {
+	_, err := parseCommand([]string{"healthcheck", "extra"})
+	if err == nil {
+		t.Fatal("parseCommand healthcheck with extra args succeeded")
+	}
+	if !strings.Contains(err.Error(), "unexpected healthcheck arguments") {
+		t.Fatalf("error = %q, want extra args message", err)
+	}
+}
+
+func TestHealthcheckCommandRunSucceedsAgainstOpenTCPListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+
+	accepted := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			accepted <- err
+			return
+		}
+		accepted <- conn.Close()
+	}()
+
+	cmd := healthcheckCommand{
+		serverAddr: listener.Addr().String(),
+		timeout:    time.Second,
+	}
+	code, err := cmd.run(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 {
+		t.Fatalf("exit code = %d, want 0", code)
+	}
+	if err := <-accepted; err != nil && !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("accepting healthcheck connection: %v", err)
+	}
+}
+
+func TestHealthcheckCommandRunFailsAgainstClosedTCPListener(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := healthcheckCommand{
+		serverAddr: addr,
+		timeout:    time.Second,
+	}
+	code, err := cmd.run(t.Context())
+	if err == nil {
+		t.Fatal("healthcheck against closed listener succeeded")
+	}
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/ninedraft/udpotcp/internal/tunnel"
 )
@@ -32,6 +33,11 @@ type clientCommand struct {
 type serverCommand struct {
 	tcpListen string
 	udpRemote string
+}
+
+type healthcheckCommand struct {
+	serverAddr string
+	timeout    time.Duration
 }
 
 type clientJSONConfig struct {
@@ -61,6 +67,8 @@ func parseCommand(args []string) (command, error) {
 		return parseClientCommand(args[1:])
 	case "server":
 		return parseServerCommand(args[1:])
+	case "healthcheck":
+		return parseHealthcheckCommand(args[1:])
 	default:
 		return nil, fmt.Errorf("unknown command %q", args[0])
 	}
@@ -134,6 +142,21 @@ func parseServerCommand(args []string) (command, error) {
 
 	if cmd.udpRemote == "" {
 		return nil, errors.New("server -udp is required")
+	}
+	return cmd, nil
+}
+
+func parseHealthcheckCommand(args []string) (command, error) {
+	fs := flag.NewFlagSet("healthcheck", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	cmd := defaultHealthcheckCommand()
+	fs.StringVar(&cmd.serverAddr, "server", cmd.serverAddr, "TCP server address")
+	fs.DurationVar(&cmd.timeout, "timeout", cmd.timeout, "TCP dial timeout")
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	if fs.NArg() != 0 {
+		return nil, fmt.Errorf("unexpected healthcheck arguments: %v", fs.Args())
 	}
 	return cmd, nil
 }
@@ -264,6 +287,13 @@ func defaultServerCommand() serverCommand {
 	}
 }
 
+func defaultHealthcheckCommand() healthcheckCommand {
+	return healthcheckCommand{
+		serverAddr: net.JoinHostPort("127.0.0.1", fmt.Sprint(defaultPort)),
+		timeout:    5 * time.Second,
+	}
+}
+
 func (cmd clientCommand) config(udpConn net.PacketConn) tunnel.ClientConfig {
 	return tunnel.ClientConfig{
 		UDPListen:  cmd.udpListen,
@@ -288,6 +318,18 @@ func (cmd serverCommand) config(listener net.Listener) tunnel.ServerConfig {
 
 func (cmd serverCommand) run(ctx context.Context) (int, error) {
 	return 0, tunnel.RunServer(ctx, cmd.config(nil))
+}
+
+func (cmd healthcheckCommand) run(ctx context.Context) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, cmd.timeout)
+	defer cancel()
+
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "tcp", cmd.serverAddr)
+	if err != nil {
+		return 1, fmt.Errorf("healthcheck tcp %s: %w", cmd.serverAddr, err)
+	}
+	return 0, conn.Close()
 }
 
 func newHumanLogger(w io.Writer) *log.Logger {
