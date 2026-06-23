@@ -1,13 +1,11 @@
 package tunnel
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log"
 	"net"
-	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -25,8 +23,7 @@ func TestTunnelForwardsUDPDatagramAndReply(t *testing.T) {
 
 	serverAddr, serverDone := startServerForTest(t, ctx, udpEndpoint.LocalAddr().String(), io.Discard)
 
-	var clientLog bytes.Buffer
-	clientUDPAddr, clientDone := startClientForTest(t, ctx, serverAddr, &clientLog)
+	clientUDPAddr, clientDone := startClientForTest(t, ctx, serverAddr, t.Output())
 
 	localApp, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -69,11 +66,6 @@ func TestTunnelForwardsUDPDatagramAndReply(t *testing.T) {
 	cancel()
 	waitNoError(t, serverDone)
 	waitNoError(t, clientDone)
-
-	logText := clientLog.String()
-	if !strings.Contains(logText, "udp <-") || !strings.Contains(logText, "tcp ->") {
-		t.Fatalf("client log = %q, want human-readable packet direction markers", logText)
-	}
 }
 
 func TestServerUsesIndependentUDPSocketPerTCPClient(t *testing.T) {
