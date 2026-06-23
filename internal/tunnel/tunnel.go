@@ -153,6 +153,21 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 	logf("tcp -> %s", tcpConn.RemoteAddr())
 	defer logf("tcp -> %s closed", tcpConn.RemoteAddr())
 
+	var nDatagrams atomic.Int64
+	var nBytesReceived atomic.Int64
+	var nBytesSent atomic.Int64
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		defer context.AfterFunc(ctx, ticker.Stop)()
+
+		for range ticker.C {
+			logf("tcp -> %s: %d datagrams, %d bytes received, %d bytes sent", tcpConn.RemoteAddr(), nDatagrams.Load(), nBytesReceived.Load(), nBytesSent.Load())
+		}
+	}()
+
 	go func() {
 		buf := make([]byte, MaxDatagramSize)
 		for {
@@ -172,6 +187,8 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 			}
 
 			peer.Store(addr.(*net.UDPAddr))
+			nDatagrams.Add(1)
+			nBytesReceived.Add(int64(n))
 
 			if err := WriteFrame(tcpConn, buf[:n]); err != nil {
 				errc <- err
@@ -196,6 +213,7 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 				continue
 			}
 
+			nBytesSent.Add(int64(len(payload)))
 			if _, err := udpConn.WriteTo(payload, addr); err != nil {
 				errc <- err
 				return
