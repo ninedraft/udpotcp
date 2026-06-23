@@ -144,6 +144,9 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 	var peer net.Addr
 	errc := make(chan error, 2)
 
+	logf("tcp -> %s", tcpConn.RemoteAddr())
+	defer logf("tcp -> %s closed", tcpConn.RemoteAddr())
+
 	go func() {
 		buf := make([]byte, MaxDatagramSize)
 		for {
@@ -166,12 +169,10 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 			peer = addr
 			peerMu.Unlock()
 
-			logf("udp <- %s %dB", addr, n)
 			if err := WriteFrame(tcpConn, buf[:n]); err != nil {
 				errc <- err
 				return
 			}
-			logf("tcp -> %s %dB", tcpConn.RemoteAddr(), n)
 		}
 	}()
 
@@ -192,12 +193,10 @@ func runClientSession(ctx context.Context, udpConn net.PacketConn, tcpConn net.C
 				continue
 			}
 
-			logf("tcp <- %s %dB", tcpConn.RemoteAddr(), len(payload))
 			if _, err := udpConn.WriteTo(payload, addr); err != nil {
 				errc <- err
 				return
 			}
-			logf("udp -> %s %dB", addr, len(payload))
 		}
 	}()
 
